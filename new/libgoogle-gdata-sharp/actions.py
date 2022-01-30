@@ -12,7 +12,6 @@ from pisi.actionsapi import get
 
 def setup():
     pisitools.dosed("Makefile","/usr/local","/usr")
-    pass
 
 def build():
     autotools.make("-j1")

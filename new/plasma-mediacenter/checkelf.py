@@ -31,19 +31,21 @@ CONSTANTS = pisi.constants.Constants()
 
 def process_ldd(objdump_needed, ldd_output, ldd_unused, ldd_undefined):
     '''Process the ldd outputs. And return a simple path only lists'''
-    result_unused = []
-    result_undefined = []
     result_broken = []
     result_main_ldd = {}
     result_needed = []
 
-    for line in ldd_unused.replace("\t", "").split("\n"):
-        if not line == "" and not "Unused" in line:
-            result_unused.append(line.strip())
+    result_unused = [
+        line.strip()
+        for line in ldd_unused.replace("\t", "").split("\n")
+        if line != "" and "Unused" not in line
+    ]
 
-    for line in ldd_undefined.replace("\t", "").split("\n"):
-        if line.startswith("undefined symbol:"):
-            result_undefined.append(re.sub("^undefined symbol: (.*)\((.*)\)$", "\\1", line))
+    result_undefined = [
+        re.sub("^undefined symbol: (.*)\((.*)\)$", "\\1", line)
+        for line in ldd_undefined.replace("\t", "").split("\n")
+        if line.startswith("undefined symbol:")
+    ]
 
     for line in ldd_output:
         if "=>" in line:
@@ -148,7 +150,7 @@ def check_intersections(result_dependencies, package_deps, package_name, systemb
     result_deps = []
     for elf_files, paths_and_deps in result_dependencies.items():
         for data in paths_and_deps:
-            if not data[1] == "broken" and not data[1] == package_name:
+            if data[1] not in ["broken", package_name]:
                 result_deps.append(data[1])
 
     # remove packages that belong to system.base component
@@ -177,11 +179,10 @@ def check_intersections(result_dependencies, package_deps, package_name, systemb
     # the lists may have variable lengths, thus we fill the smallers one with empty strings.
     # at the end all the lists are in the same length. This makes it easy to print it like a table
     cmp_func = lambda x, y: len(x) - len(y)
-    result_lists = itertools.izip_longest(sorted(list(set(package_deps)), cmp=cmp_func),
+    return itertools.izip_longest(sorted(list(set(package_deps)), cmp=cmp_func),
                                           sorted(result_deps, cmp=cmp_func),
                                           sorted(result_section, cmp=cmp_func),
                                           fillvalue="")
-    return result_lists
 
 def output_result(package_name, package_dir):
     '''execute ldd on elf files and returns them'''
@@ -196,11 +197,17 @@ def output_result(package_name, package_dir):
         package_files = os.popen("find %s" % package_dir).read().strip().split("\n")
         package_pc_files = glob.glob("%s/usr/*/pkgconfig/*.pc" % package_dir)
     else:
-        package_files = set(["/%s" % file_name.path \
-            for file_name in INSTALLDB.get_files(package_name).list])
-        package_pc_files = set([os.path.realpath("/%s" % file_name.path) \
-                for file_name in INSTALLDB.get_files(package_name).list \
-                if fnmatch.fnmatch(file_name.path, "*/pkgconfig/*.pc")])
+        package_files = {
+            "/%s" % file_name.path
+            for file_name in INSTALLDB.get_files(package_name).list
+        }
+
+        package_pc_files = {
+            os.path.realpath("/%s" % file_name.path)
+            for file_name in INSTALLDB.get_files(package_name).list
+            if fnmatch.fnmatch(file_name.path, "*/pkgconfig/*.pc")
+        }
+
 
     for package_file in package_files:
         package_file_info = magic_db.file(package_file) #Return file type
@@ -215,13 +222,15 @@ def output_result(package_name, package_dir):
     result_undefined = {}
     result_broken = None
     result_runpath = {}
-    ld_library_paths = set()
-
     # Add library paths for unpacked pisi files
     if package_dir:
-        for elf_file in package_elf_files:
-            if elf_file.endswith(".so") or ".so." in elf_file:
-                ld_library_paths.add(os.path.dirname(elf_file))
+        ld_library_paths = {
+            os.path.dirname(elf_file)
+            for elf_file in package_elf_files
+            if elf_file.endswith(".so") or ".so." in elf_file
+        }
+
+
         os.environ.update({'LD_LIBRARY_PATH': ":".join(ld_library_paths)})
 
     for elf_file in package_elf_files:
@@ -263,18 +272,15 @@ def output_result(package_name, package_dir):
 
 def colorize(msg, color, nocolor=False):
     """Colorizes the given message."""
-    # The nocolor is added to shut off completely. You may ask the point of this
-    # someone want to pipe the output, but the asci characters will also printed
     if nocolor:
         return msg
-    else:
-        colors = {'green'   : '\x1b[32;01m%s\x1b[0m',
-                  'red'     : '\x1b[31;01m%s\x1b[0m',
-                  'yellow'  : '\x1b[33;01m%s\x1b[0m',
-                  'bold'    : '\x1b[1;01m%s\x1b[0m',
-                  'none'    : '\x1b[0m%s\x1b[0m',
-                 }
-        return colors[color if sys.stdout.isatty() else 'none'] % msg
+    colors = {'green'   : '\x1b[32;01m%s\x1b[0m',
+              'red'     : '\x1b[31;01m%s\x1b[0m',
+              'yellow'  : '\x1b[33;01m%s\x1b[0m',
+              'bold'    : '\x1b[1;01m%s\x1b[0m',
+              'none'    : '\x1b[0m%s\x1b[0m',
+             }
+    return colors[color if sys.stdout.isatty() else 'none'] % msg
 
 def main(arg):
     '''Initialize packages and get the results. Prints them out '''
